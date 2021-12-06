@@ -1,0 +1,460 @@
+globals
+[
+  csv fileList
+  wcos
+  materias_semestre
+  frecuencia_obligatoriedad
+  lista_semestres
+
+  decisiones_sl
+  decisiones
+  difusion
+  intencion_media
+  total_obligaciones
+  obligaciones_potenciales
+  perc_mand
+  actpromedio
+  cappromedio
+  utipromedio
+  cospromedio
+  adoptadores
+  adopcion
+  tiempo-ejecucion
+
+  ;Atributos de los primiparos
+  mact1
+  mcap1
+  muti1
+  mcos1
+  desact1
+  descap1
+  desuti1
+  descos1
+]
+
+turtles-own
+[
+  University
+  Program
+  AcademicProgress
+  Age
+  Gender
+  Income
+
+  mact
+  mcap
+  muti
+  mcos
+
+  historia
+  historia_memoria
+
+  veces_sl
+  veces
+  experiencia_propia
+  experiencia_amigos
+
+  intencion
+  decision
+
+  ;Para armar la red
+  amigos
+  billetes
+]
+
+to setup
+  ca
+  reset-ticks
+  reset-timer
+  openFile
+  crear-poblacion
+  ask turtles [conectar-cercanos]
+  repeat 200 [layout-spring turtles links 0.1 0.1 0.1]
+  ask turtles [conectar-lejanos]
+  ;conectar-lejanos
+  ;crear_experiencia
+  parametros_iniciales
+  calcular_intencion
+end
+
+to parametros_iniciales
+  set wcos 100 - watt - wcap - wuti
+  set materias_semestre 4
+  set frecuencia_obligatoriedad 1000
+  set obligaciones_potenciales count turtles * periodos * materias_semestre
+  set lista_semestres [1 2 3 4 5 6 7 8 9 10]
+  let weeks_mandatory int (periodos * perc_weeks_mandatory / 100)
+  if mandatory [set frecuencia_obligatoriedad int (periodos / weeks_mandatory)]
+end
+
+to go
+  if ticks > periodos [stop]
+  calcular_intencion
+  tomar_decision
+  actualizar_factores
+  indicadores
+  if paso = "semestres" [avanzar-semestre]
+  crear-primiparos
+  matar-graduados
+  tick
+end
+
+to avanzar-semestre
+  ask turtles [set AcademicProgress AcademicProgress + 1]
+end
+
+to crear-primiparos
+  let primiparos count turtles with [AcademicProgress > 10]
+  create-turtles primiparos
+  [
+    atributos-generales-tortugas
+    set AcademicProgress 1
+    let itemdelistasprimiparos 0
+    if tipo_modelo = 1 [set itemdelistasprimiparos random 5]
+    if tipo_modelo = 1 or tipo_modelo = 3
+    [
+      set mact item itemdelistasprimiparos mact1
+      set mcap item itemdelistasprimiparos mcap1
+      set muti item itemdelistasprimiparos muti1
+      set mcos item itemdelistasprimiparos mcos1
+    ]
+    if 2 = "Grupos_hete"
+    [
+      set mact random-normal item itemdelistasprimiparos mact1 item itemdelistasprimiparos desact1
+      set mcap random-normal item itemdelistasprimiparos mcap1 item itemdelistasprimiparos descap1
+      set muti random-normal item itemdelistasprimiparos muti1 item itemdelistasprimiparos desuti1
+      set mcos random-normal item itemdelistasprimiparos mcos1 item itemdelistasprimiparos descos1
+    ]
+  ]
+  ask turtles with [AcademicProgress = 1]
+  [
+    conectar-cercanos
+    conectar-lejanos
+  ]
+  repeat 1 [layout-spring turtles links 0.1 0.1 0.1]
+end
+
+to matar-graduados
+  ask turtles with [AcademicProgress > 10] [die]
+end
+
+to indicadores
+  set decisiones_sl sum [veces_sl] of turtles
+  set decisiones sum [veces] of turtles
+  set difusion decisiones_sl / decisiones
+  set intencion_media mean [intencion] of turtles
+  set perc_mand total_obligaciones / obligaciones_potenciales
+
+  set actpromedio mean [mact] of turtles
+  set cappromedio mean [mcap] of turtles
+  set utipromedio mean [muti] of turtles
+  set cospromedio mean [mcos] of turtles
+  set adoptadores count turtles with [color = red]
+  set adopcion adoptadores / count turtles
+  set tiempo-ejecucion timer
+
+end
+
+to calcular_intencion
+  ask turtles
+  [
+    set intencion mact * watt / 100 + mcap * wcap / 100 + muti * wuti / 100 + mcos * wcos / 100
+    if intencion > 0.5 [set color red]
+  ]
+end
+
+to tomar_decision
+  ;Desordenar la lista de semestres para luego aleatoriamente los semestres que tendrán obligatoriedad y los que no
+  set lista_semestres shuffle lista_semestres
+
+  ;Asumir que ningún semestre es obligatorio (prepara los parámetros para ello)
+  let semestres_obligatorios 0
+  let sublista_ob []
+  let sublista_noob lista_semestres
+
+  ;Hacer que la decisión sea obligatoria para los estudiantes de cierto semestre
+  if mandatory and ticks mod frecuencia_obligatoriedad = 0
+  [
+    ;Determinar cuántos semestres serán obligatorios (si la política es dirigida, podrá ser sólo uno de ellos)
+    ifelse kind-mandatory = "random-m" [set semestres_obligatorios count_sem_mand] [set semestres_obligatorios 1]
+    set sublista_ob sublist lista_semestres 0 semestres_obligatorios
+    set sublista_noob sublist lista_semestres semestres_obligatorios (length lista_semestres)
+
+    let i -1
+    repeat (length sublista_ob)
+    [
+      set i i + 1
+      ask turtles with [AcademicProgress = item i sublista_ob]
+      [
+        ;Obligación en cierta cantidad de cursos
+        repeat cours_mand
+        [
+          set decision 1
+          set historia fput decision historia
+          set total_obligaciones total_obligaciones + 1
+        ]
+        ;Voluntario en los cursos restantes
+        repeat (materias_semestre - cours_mand)
+        [
+          proceso_decision
+        ]
+      ]
+    ]
+  ]
+
+  ;hacer que la decisión sea voluntaria para los estudiantes de los demás semestres
+  let i -1
+  repeat (length sublista_noob)
+  [
+    set i i + 1
+    ask turtles with [AcademicProgress = item i sublista_noob]
+    [
+      repeat materias_semestre [proceso_decision]
+    ]
+  ]
+end
+
+to proceso_decision
+  ifelse random-float 1 < intencion [set decision 1] [set decision 0]
+  set historia fput decision historia
+end
+
+to actualizar_factores
+  ;Calcular la experiencia propia
+  ask turtles
+  [
+    ;Fijar la longitud de la memoria
+    let longitud_memoria memory
+    if (length historia) < memory [set longitud_memoria length historia]
+
+    set historia_memoria sublist historia 0 longitud_memoria
+
+    set veces_sl sum historia_memoria
+    set veces length historia_memoria
+  ]
+
+  ;Calcular la experiencia de sus amigos
+  ask turtles
+  [
+    set experiencia_propia veces_sl / veces
+    set experiencia_amigos sum [veces_sl] of link-neighbors / sum [veces] of link-neighbors
+  ]
+
+  ask turtles
+  [
+    ;Con la experiencia propia, modificar sus capacidades y la utilidad
+    if aprendizaje_experiencia
+    [
+      ; capacidades
+      set mcap mcap + abs (mcap) * experiencia_propia
+      if mcap = 0 [set mcap 0.01]
+      if mcap > 1 [set mcap 1]
+
+      ; utilidad
+      set muti muti + abs (muti) * experiencia_propia * 0
+      if muti = 0 [set muti 0.01]
+      if muti > 1 [set muti 1]
+    ]
+    ;Con la experiencia de sus amigos, modificar las preferencias
+    if preferencia_amigos
+    [
+      set mact mact + abs(mact) * experiencia_amigos
+      if mact = 0 [set mact 0.01]
+      if mact > 1 [set mact 1]
+    ]
+  ]
+end
+
+to crear_experiencia
+  ask n-of 3 turtles with [AcademicProgress = 1 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 4 turtles with [AcademicProgress = 2 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 5 turtles with [AcademicProgress = 3 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 6 turtles with [AcademicProgress = 4 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 7 turtles with [AcademicProgress = 5 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 8 turtles with [AcademicProgress = 6 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 9 turtles with [AcademicProgress = 7 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 10 turtles with [AcademicProgress = 8 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 8 turtles with [AcademicProgress = 9 ]
+  [set historia replace-item 0 historia 1]
+  ask n-of 9 turtles with [AcademicProgress = 10 ]
+  [set historia replace-item 0 historia 1]
+
+  ;ask turtles with [sum historia > 0]
+  ;[set color red]
+end
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;Crear la red;;;;;;;;;;;;;;
+to conectar-cercanos
+  let misemestre AcademicProgress
+  ;lazos fuertes con los del mismo semestre
+  set amigos count link-neighbors
+  let potenciales other turtles with [AcademicProgress =  misemestre]
+  let maxamigos 6
+  if count potenciales < maxamigos [set maxamigos count potenciales]
+  while [amigos < maxamigos]
+  [
+    create-link-with one-of potenciales
+    set amigos count link-neighbors
+  ]
+end
+
+to conectar-lejanos
+  let misemestre AcademicProgress
+  set billetes 0
+  ask other turtles [set billetes 10 - abs (misemestre - AcademicProgress)]
+  create-link-with ganador-lejano
+end
+
+to-report ganador-lejano
+  let pick random-float sum [billetes] of other turtles
+  ;show sum [billetes] of turtles
+  ;show pick
+  let ganador nobody
+  ask other turtles
+  [
+    if ganador = nobody
+    [
+      ifelse billetes > pick
+      [ set ganador self ]
+      [ set pick pick - billetes ]
+    ]
+  ]
+  report ganador
+end
+
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;;;;;;;;;;;;;;;;;;;Leer los datos;;;;;;;;;;;;;;
+
+to openFile
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;Leer el archivo con los valores de los factores
+  ;Archivo por grupos
+  let archivo ""
+  if tipo_modelo = 3 [set archivo "SUSPPGrupo2.csv"]
+  if tipo_modelo = 2 [set archivo "SUSPPGrupo2.csv"]
+  if tipo_modelo = 1 [set archivo "SUSPUnoaUno.csv"]
+
+  file-open archivo
+
+  set fileList []
+
+  while [not file-at-end?] [
+    set csv file-read-line
+    set csv word csv ","  ; add comma for loop termination
+
+    let mylist []  ; list of values
+    while [not empty? csv]
+    [
+      let $x position "," csv
+      let $item substring csv 0 $x  ; extract item
+      carefully [set $item read-from-string $item][] ; convert if number
+      set mylist lput $item mylist  ; append to list
+      set csv substring csv ($x + 1) length csv  ; remove item and comma
+    ]
+    set fileList lput mylist fileList
+  ]
+  ;show fileList
+  file-close
+end
+
+to crear-poblacion
+  ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+  ;Crear la población con esos atributos. Se crea tortuga por tortuga
+  let i 0
+  let repetidor 226
+  if tipo_modelo = 3 or tipo_modelo = 2
+  [
+    set repetidor 10
+  ]
+
+  repeat repetidor
+  [
+    set i i + 1
+    ;Crear las turtugas casi de a una
+    ;1. Buscar cuántas crear de ese tipo
+    let idfilanumero (i)
+    let idcolnumero 0
+    let filanumero item idfilanumero fileList
+    let numero item 0 filanumero
+
+    ;2. Crear las tortugas
+    create-turtles numero
+    [
+      atributos-generales-tortugas
+
+      ;Características sociodemográficas
+      let idfila i
+      let fila item idfila fileList
+      set AcademicProgress (item 1 fila)
+
+      ;Valores de los factores
+      if tipo_modelo = 3 or tipo_modelo = 1
+      [
+        set mact (item 2 fila)
+        set mcap (item 3 fila)
+        set muti (item 4 fila)
+        set mcos (item 5 fila)
+      ]
+      if tipo_modelo = 2
+      [
+        set mact random-normal (item 2 fila) (item 6 fila)
+        set mcap random-normal (item 3 fila) (item 7 fila)
+        set muti random-normal (item 4 fila) (item 8 fila)
+        set mcos random-normal (item 5 fila) (item 9 fila)
+      ]
+    ]
+  ]
+
+  ;Atributos de los sujetos del primer semestre para crear primíparos
+  if tipo_modelo = 3 or tipo_modelo = 2
+  [
+    let fila item 1 fileList
+    set mact1 (list item 2 fila)
+    set mcap1 (list item 3 fila)
+    set muti1 (list item 4 fila)
+    set mcos1 (list item 5 fila)
+  ]
+  if tipo_modelo = 2
+  [
+    let fila item 1 fileList
+    set desact1 (list item 6 fila)
+    set descap1 (list item 7 fila)
+    set desuti1 (list item 8 fila)
+    set descos1 (list item 9 fila)
+  ]
+
+  if tipo_modelo = 1
+  [
+    let fila1 item 1 fileList
+    let fila2 item 2 fileList
+    let fila3 item 3 fileList
+    let fila4 item 4 fileList
+    let fila5 item 5 fileList
+
+    set mact1 (list item 2 fila1 item 2 fila2 item 2 fila3 item 2 fila4 item 2 fila5)
+    set mcap1 (list item 3 fila1 item 3 fila2 item 3 fila3 item 3 fila4 item 3 fila5)
+    set muti1 (list item 4 fila1 item 4 fila2 item 4 fila3 item 4 fila4 item 4 fila5)
+    set mcos1 (list item 5 fila1 item 5 fila2 item 5 fila3 item 5 fila4 item 5 fila5)
+  ]
+end
+
+to atributos-generales-tortugas
+  ;setxy random-xcor random-ycor
+  set shape "person"
+  set color white
+  set historia []
+end
